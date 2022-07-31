@@ -1,3 +1,4 @@
+#![allow(unused_assignments)]
 use anyhow::{Error, Result};
 use log::debug;
 use log::info;
@@ -29,29 +30,39 @@ pub fn delete_tweets(
     since: Option<String>,
     until: Option<String>,
 ) -> Result<()> {
-    debug!("args: since={:?}, until={:?}", since, until);
+    debug!("args: since={:?}, until={:?}", &since, &until);
 
-    let result = tw_client.fetch_timeline(since, until);
+    info!("We can't delete tweets all at once due to API limitation and current implementations. It will repeat your delete until it becomes 0. (or API call limits)");
 
-    if result.is_err() {
-        panic!()
-    }
-    let total_tweets_count = &result.as_ref().unwrap().len();
-    let mut deleted_tweets_count = 0;
-    info!("Start to delete {} tweets", total_tweets_count);
-    for val in result.unwrap().iter() {
-        let deleted = tw_client.delete_tweet(&val.id);
-        if deleted != true {
-            return Err(anyhow::anyhow!("Delete was failed with {:?}", &val.id));
+    let mut is_continued = true;
+    while is_continued {
+        let cloned_since = since.clone();
+        let cloned_until = until.clone();
+        let result = tw_client.fetch_timeline(cloned_since, cloned_until);
+
+        if result.is_err() {
+            is_continued = false;
+            info!("Looks nothing to delete. Exit the execution.");
+            break;
         }
-        deleted_tweets_count += 1;
-        info!(
-            "Deleted Id: {:?}, {} / {}",
-            &val.id, deleted_tweets_count, total_tweets_count
-        );
-        // 早く投げすぎてブロックされることを防ぐため、インターバルを挟む
-        let request_interval = std::time::Duration::from_secs(2);
-        sleep(request_interval);
+        let total_tweets_count = &result.as_ref().unwrap().len();
+        let mut deleted_tweets_count = 0;
+        info!("Start to delete {} tweets", total_tweets_count);
+        for val in result.unwrap().iter() {
+            let deleted = tw_client.delete_tweet(&val.id);
+            if deleted != true {
+                return Err(anyhow::anyhow!("Delete was failed with {:?}", &val.id));
+            }
+            deleted_tweets_count += 1;
+            info!(
+                "Deleted Id: {:?}, {} / {}",
+                &val.id, deleted_tweets_count, total_tweets_count
+            );
+            // 早く投げすぎてブロックされることを防ぐため、インターバルを挟む
+            let request_interval = std::time::Duration::from_millis(500);
+            sleep(request_interval);
+        }
+        info!("Finished the round of deletion! (will continue to delete in the next round if necessary)")
     }
     Ok({})
 }
@@ -110,6 +121,10 @@ mod tests {
     fn delete_tweets_all() {
         // setup required
         let mut tw_client = MockTwitterClientTrait::default();
+        tw_client
+            .expect_fetch_timeline()
+            .returning(|_, _| Ok(vec![]));
+        tw_client.expect_count_tweets().returning(|_, _| 0);
         tw_client.expect_delete_tweet().returning(|_| true);
         let result = delete_tweets(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);
@@ -120,6 +135,10 @@ mod tests {
         // TODO: setup required
         let mut tw_client = MockTwitterClientTrait::default();
         // TODO: setup period config required
+        tw_client
+            .expect_fetch_timeline()
+            .returning(|_, _| Ok(vec![]));
+        tw_client.expect_count_tweets().returning(|_, _| 0);
         tw_client.expect_delete_tweet().returning(|_| true);
         let result = delete_tweets(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);
@@ -130,6 +149,10 @@ mod tests {
         // TODO: setup required
         let mut tw_client = MockTwitterClientTrait::default();
         // TODO: setup protected config required
+        tw_client
+            .expect_fetch_timeline()
+            .returning(|_, _| Ok(vec![]));
+        tw_client.expect_count_tweets().returning(|_, _| 0);
         tw_client.expect_delete_tweet().returning(|_| true);
         let result = delete_tweets(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);

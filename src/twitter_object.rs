@@ -21,6 +21,16 @@ pub struct Tweet {
 }
 
 #[derive(Deserialize, Debug, Serialize)]
+pub struct TweetCount {
+    pub meta: TweetCountMeta,
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+pub struct TweetCountMeta {
+    pub total_tweet_count: u32,
+}
+
+#[derive(Deserialize, Debug, Serialize)]
 pub struct PublicMetrics {
     pub retweet_count: u32,
     pub reply_count: u32,

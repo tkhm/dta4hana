@@ -13,7 +13,7 @@ use std::io::{Seek, SeekFrom};
 use url::Url;
 use uuid::Uuid;
 
-use crate::twitter_object::{ResponseObject, Tweet, User};
+use crate::twitter_object::{ResponseObject, Tweet, TweetCount, User};
 
 pub struct TwitterClient {
     agent: ureq::Agent,
@@ -53,10 +53,10 @@ pub trait TwitterClientTrait {
     fn new(server: Url) -> Result<TwitterClient>;
     fn initiaize(self, config_path: &PathBuf) -> Result<TwitterClient>;
     fn login(&self, config_path: &PathBuf) -> Result<TwitterAppUserCredential>;
+    fn count_tweets(&self, since: Option<String>, until: Option<String>) -> u32;
     fn fetch_timeline(&self, since: Option<String>, until: Option<String>) -> Result<Vec<Tweet>>;
     fn delete_liked(&self, tweet_id_str: &str) -> bool;
     fn delete_tweet(&self, tweet_id_str: &str) -> bool;
-    fn temp(&self) -> Result<()>;
 }
 
 impl TwitterClientTrait for TwitterClient {
@@ -219,12 +219,161 @@ impl TwitterClientTrait for TwitterClient {
         Ok(user_cred)
     }
 
+    /// Tweet一覧を取得、だが、Academic usage onlyなのでこのエンドポイントは呼び出せない
+    fn count_tweets(&self, mut since: Option<String>, mut until: Option<String>) -> u32 {
+        info!("Get the target tweets counts");
+
+        if since.is_some() {
+            let mut since_date = String::new();
+            since_date.push_str(since.as_ref().unwrap());
+            since_date.push_str("T00:00:00Z");
+            since = Some(since_date);
+        }
+        if until.is_some() {
+            let mut until_date = String::new();
+            until_date.push_str(until.as_ref().unwrap());
+            until_date.push_str("T00:00:00Z");
+            until = Some(until_date);
+        }
+
+        let oauth_nonce = Uuid::new_v4();
+        let oauth_token = &self.user_cred.as_ref().unwrap().oauth_token;
+        let oauth_token_secret = &self.user_cred.as_ref().unwrap().oauth_token_secret;
+        let consumer_key = &self.app_cred.consumer_key;
+        let consumer_secret = &self.app_cred.consumer_secret;
+
+        let encoded_consumer_secret: String =
+            url::form_urlencoded::byte_serialize(&consumer_secret.as_bytes()).collect();
+        let encoded_oauth_token_secret: String =
+            url::form_urlencoded::byte_serialize(&oauth_token_secret.as_bytes()).collect();
+        let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
+
+        // メソッドとURL以外のSignature Data構成要素特定
+        let oauth_signature_method = "HMAC-SHA1";
+        let oauth_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let oauth_version = "1.0";
+
+        let tweet_count_request = self.server.join(&format!("2/tweets/counts/all")).unwrap();
+        // TODO: つけるquery paramによってsignature data内で配置すべき位置が異なる、これを自動で実現可能な形にするべきだが現状はできていない
+        // TODO: この冗長な記載はリクエストを投げる箇所でも同様になっている
+        let signature_data: String;
+        if since.is_some() && until.is_some() {
+            let encoded_until: String =
+                url::form_urlencoded::byte_serialize(&until.as_ref().unwrap().as_bytes()).collect();
+            let encoded_since: String =
+                url::form_urlencoded::byte_serialize(&since.as_ref().unwrap().as_bytes()).collect();
+            signature_data = format!(
+                "end_time={}&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&start_time={}",
+                &encoded_until,
+                &consumer_key,
+                &oauth_nonce,
+                &oauth_signature_method,
+                &oauth_timestamp,
+                &oauth_token,
+                &oauth_version,
+                &encoded_since
+            );
+        } else if since.is_some() {
+            let encoded_since: String =
+                url::form_urlencoded::byte_serialize(&since.as_ref().unwrap().as_bytes()).collect();
+            signature_data = format!(
+                "oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&start_time={}",
+                &consumer_key,
+                &oauth_nonce,
+                &oauth_signature_method,
+                &oauth_timestamp,
+                &oauth_token,
+                &oauth_version,
+                &encoded_since
+            );
+        } else if until.is_some() {
+            let encoded_until: String =
+                url::form_urlencoded::byte_serialize(&until.as_ref().unwrap().as_bytes()).collect();
+            signature_data = format!(
+                "end_time={}&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}",
+                &encoded_until,
+                &consumer_key,
+                &oauth_nonce,
+                &oauth_signature_method,
+                &oauth_timestamp,
+                &oauth_token,
+                &oauth_version
+            );
+        } else {
+            signature_data = format!(
+                "oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}",
+                &consumer_key,
+                &oauth_nonce,
+                &oauth_signature_method,
+                &oauth_timestamp,
+                &oauth_token,
+                &oauth_version
+            );
+        }
+
+        // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
+        let request_method = String::from("GET");
+        let encoded_request_target: String =
+            url::form_urlencoded::byte_serialize(&tweet_count_request.as_str().as_bytes())
+                .collect();
+        let encoded_sigature_data: String =
+            url::form_urlencoded::byte_serialize(&signature_data.as_bytes()).collect();
+        let joined_signature_data = format!(
+            "{}&{}&{}",
+            request_method, encoded_request_target, encoded_sigature_data
+        );
+        debug!("sig data: {}", joined_signature_data);
+
+        debug!("sig key: {}", &signagure_key);
+        let hmac_digest =
+            hmacsha1::hmac_sha1(&signagure_key.as_bytes(), &joined_signature_data.as_bytes());
+        let signature = base64::encode(hmac_digest);
+        let encoded_signature: String =
+            url::form_urlencoded::byte_serialize(&signature.as_str().as_bytes()).collect();
+        debug!("sig base64: {}", signature);
+
+        let mut signed_tweet_count_request = self
+            .agent
+            .request_url(request_method.as_str(), &tweet_count_request)
+            .set("Authorization", &format!(
+                "OAuth oauth_consumer_key={},oauth_nonce={},oauth_signature={},oauth_signature_method={},oauth_timestamp={},oauth_token={},oauth_version={}",
+                consumer_key, oauth_nonce, encoded_signature, oauth_signature_method, oauth_timestamp, oauth_token, &oauth_version)
+            );
+        if since.is_some() && until.is_some() {
+            signed_tweet_count_request = signed_tweet_count_request
+                .query("end_time", until.as_ref().unwrap())
+                .query("start_time", since.as_ref().unwrap());
+        } else if since.is_some() {
+            signed_tweet_count_request =
+                signed_tweet_count_request.query("start_time", since.as_ref().unwrap());
+        } else if until.is_some() {
+            signed_tweet_count_request =
+                signed_tweet_count_request.query("end_time", until.as_ref().unwrap());
+        }
+
+        let signed_tweet_count_response = signed_tweet_count_request.call();
+
+        let signed_tweet_count_response = match signed_tweet_count_response {
+            Ok(res) => res,
+            Err(e) => {
+                panic!("{}", e);
+            }
+        };
+        let response_object: ResponseObject<TweetCount> =
+            serde_json::from_reader(signed_tweet_count_response.into_reader()).unwrap();
+
+        response_object.data.meta.total_tweet_count
+    }
+
     fn fetch_timeline(
         &self,
         mut since: Option<String>,
         mut until: Option<String>,
     ) -> Result<Vec<Tweet>> {
-        info!("Start to read specific person's tweet");
+        info!("Pull the target tweets");
         if self.work_path.exists() {
             debug!("Work file {} will be overwritten", self.work_path.display());
         } else {
@@ -460,9 +609,5 @@ impl TwitterClientTrait for TwitterClient {
             Ok(_) => return true,
             Err(_) => return false,
         };
-    }
-
-    fn temp(&self) -> Result<()> {
-        Ok({})
     }
 }
