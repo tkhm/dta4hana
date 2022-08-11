@@ -1,4 +1,4 @@
 # DTA4HANA
-Delete Them All For Project HANA.
+CLI tool for deleting your twitter activities
 
-黒歴史クリーナーのアイデアをベースに手元で動かせるアプリとして作っています。
+This is inspired by Delete Them All(a.k.a. 黒歴史クリーナー)

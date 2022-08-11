@@ -1,5 +1,8 @@
+//! Twitter API response object definition
 use serde::{Deserialize, Serialize};
 
+/// Wrapper of the response
+/// `T` is depending on the endpoints, but always it will be wrapped with `data`
 #[derive(Deserialize, Serialize)]
 pub struct ResponseObject<T> {
     pub data: T,
@@ -20,16 +23,7 @@ pub struct Tweet {
     pub attachments: Option<Attachments>,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
-pub struct TweetCount {
-    pub meta: TweetCountMeta,
-}
-
-#[derive(Deserialize, Debug, Serialize)]
-pub struct TweetCountMeta {
-    pub total_tweet_count: u32,
-}
-
+/// Will be used for chekcing how many likes, retweets and replies on the tweet
 #[derive(Deserialize, Debug, Serialize)]
 pub struct PublicMetrics {
     pub retweet_count: u32,
@@ -38,6 +32,7 @@ pub struct PublicMetrics {
     pub quote_count: u32,
 }
 
+/// Will be used for chekcing the attachments
 #[derive(Deserialize, Debug, Serialize)]
 pub struct Attachments {
     pub media_keys: Vec<String>,

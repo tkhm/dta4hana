@@ -1,3 +1,4 @@
+//! Definition of CLI commands/sub commands + its option parameters
 use std::path::PathBuf;
 use structopt::StructOpt;
 
