@@ -395,10 +395,10 @@ impl TwitterClientTrait for TwitterClient {
         let result_map: Vec<&str> = result.split('&').collect();
 
         // oauth_callback_confirmed, oauth_token, oauth_token_secret
-        let mut request_token_keys: HashMap<String, String> = HashMap::new();
+        let mut request_token_keys: HashMap<&str, &str> = HashMap::new();
         for each in result_map {
             let each_line: Vec<&str> = each.split('=').collect();
-            request_token_keys.insert(each_line[0].to_string(), each_line[1].to_string());
+            request_token_keys.insert(each_line[0], each_line[1]);
         }
         let req_oauth_token = match request_token_keys.get("oauth_token") {
             Some(value) => value.to_string(),
@@ -434,10 +434,10 @@ impl TwitterClientTrait for TwitterClient {
         let result = access_token_response.into_string()?;
         let result_map: Vec<&str> = result.split('&').collect();
         // oauth_token, oauth_token_secret, user_id, screen_name
-        let mut access_token_keys: HashMap<String, String> = HashMap::new();
+        let mut access_token_keys: HashMap<&str, &str> = HashMap::new();
         for each in result_map {
             let each_line: Vec<&str> = each.split('=').collect();
-            access_token_keys.insert(each_line[0].to_string(), each_line[1].to_string());
+            access_token_keys.insert(each_line[0], each_line[1]);
         }
 
         // note: this oauth_token and request's oauth_token is not the same
