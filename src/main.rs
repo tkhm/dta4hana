@@ -1,8 +1,7 @@
 //! CLI tool for deleting your twitter activities
 //! This is inspired by Delete Them All(a.k.a. 黒歴史クリーナー)
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use env_logger::Env;
-use log::error;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use twitter_client::TwitterClient;
@@ -25,29 +24,28 @@ fn main() -> anyhow::Result<()> {
     env_logger::init_from_env(env);
 
     // Twitter Client初期化用のKeyなど, 定義がない場合は実行時エラーにする
-    let api_key = option_env!("DTA4HANA_B");
-    let consumer_key = option_env!("DTA4HANA_CK");
-    let consumer_secret = option_env!("DTA4HANA_CS");
-
-    if api_key.is_none() || consumer_key.is_none() || consumer_secret.is_none() {
-        error!(
-            "Please confirm the following environment values are defined: {}, {}, {}",
-            "DTA4HANA_B", "DTA4HANA_CK", "DTA4HANA_CS"
-        );
-    }
-
-    let api_key = api_key.unwrap().to_string();
-    let consumer_key = consumer_key.unwrap().to_string();
-    let consumer_secret = consumer_secret.unwrap().to_string();
+    let api_key = match option_env!("DTA4HANA_B") {
+        Some(env) => env.to_string(),
+        None => return Err(anyhow::anyhow!("No value is defined in {}", "DTA4HANA_B")),
+    };
+    let consumer_key = match option_env!("DTA4HANA_CK") {
+        Some(env) => env.to_string(),
+        None => return Err(anyhow::anyhow!("No value is defined in {}", "DTA4HANA_CK")),
+    };
+    let consumer_secret = match option_env!("DTA4HANA_CS") {
+        Some(env) => env.to_string(),
+        None => return Err(anyhow::anyhow!("No value is defined in {}", "DTA4HANA_CS")),
+    };
 
     let CommandLineArgs {
         action,
         config_file,
     } = CommandLineArgs::from_args();
 
-    let config_file = config_file
-        .or_else(find_default_config_file)
-        .ok_or(anyhow!("Failed to find config file."))?;
+    let config_file = match config_file {
+        Some(config_file) => config_file,
+        None => find_default_config_file()?,
+    };
 
     let tw_client: TwitterClient =
         dta_app::init_client(api_key, consumer_key, consumer_secret, &config_file)?;
@@ -63,12 +61,15 @@ fn main() -> anyhow::Result<()> {
 
 /// Get the default path for storing user credential as a file
 /// It assumes you have write permission in your home dir
-fn find_default_config_file() -> Option<PathBuf> {
+fn find_default_config_file() -> Result<PathBuf, Error> {
     let default_path = ".dta4hana.json";
-    home::home_dir().map(|mut path| {
-        path.push(default_path);
-        path
-    })
+    match home::home_dir() {
+        Some(mut home_dir) => {
+            home_dir.push(default_path);
+            Ok(home_dir)
+        }
+        None => Err(anyhow!("Failed to load home dir")),
+    }
 }
 
 #[cfg(test)]
@@ -78,9 +79,18 @@ mod tests {
     #[test]
     #[ignore]
     fn delete_tweets() {
-        let api_key = option_env!("DTA4HANA_B").unwrap().to_string();
-        let consumer_key = option_env!("DTA4HANA_CK").unwrap().to_string();
-        let consumer_secret = option_env!("DTA4HANA_CS").unwrap().to_string();
+        let api_key = match option_env!("DTA4HANA_B") {
+            Some(env) => env.to_string(),
+            None => panic!(), 
+        };
+        let consumer_key = match option_env!("DTA4HANA_CK") {
+            Some(env) => env.to_string(),
+            None => panic!(), 
+        };
+        let consumer_secret = match option_env!("DTA4HANA_CS") {
+            Some(env) => env.to_string(),
+            None => panic!(), 
+        };
 
         let tw_client: TwitterClient = dta_app::init_client(
             api_key,
@@ -96,9 +106,18 @@ mod tests {
     #[test]
     #[ignore]
     fn unlike_likes() {
-        let api_key = option_env!("DTA4HANA_B").unwrap().to_string();
-        let consumer_key = option_env!("DTA4HANA_CK").unwrap().to_string();
-        let consumer_secret = option_env!("DTA4HANA_CS").unwrap().to_string();
+        let api_key = match option_env!("DTA4HANA_B") {
+            Some(env) => env.to_string(),
+            None => panic!(), 
+        };
+        let consumer_key = match option_env!("DTA4HANA_CK") {
+            Some(env) => env.to_string(),
+            None => panic!(), 
+        };
+        let consumer_secret = match option_env!("DTA4HANA_CS") {
+            Some(env) => env.to_string(),
+            None => panic!(), 
+        };
 
         let tw_client: TwitterClient = dta_app::init_client(
             api_key,

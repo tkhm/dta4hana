@@ -1,2 +1,9 @@
+# Rust specific
 /target
+
+# IDE and such
+.vscode/
+
+# App specific
 .env
+

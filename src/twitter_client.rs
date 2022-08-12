@@ -51,8 +51,8 @@ pub trait TwitterClientTrait {
         consumer_secret: String,
         user_cred: Option<TwitterAppUserCredential>,
     ) -> Result<TwitterClient>;
-    fn delete_liked(&self, tweet_id_str: &str) -> bool;
-    fn delete_tweet(&self, tweet_id_str: &str) -> bool;
+    fn delete_liked(&self, tweet_id_str: &str) -> Result<()>;
+    fn delete_tweet(&self, tweet_id_str: &str) -> Result<()>;
     fn fetch_timeline(&self, since: Option<String>, until: Option<String>) -> Result<Vec<Tweet>>;
     fn init_user_cred(self, user_cred: TwitterAppUserCredential) -> Result<TwitterClient>;
     fn login(&self) -> Result<TwitterAppUserCredential>;
@@ -72,7 +72,7 @@ impl TwitterClientTrait for TwitterClient {
         consumer_secret: String,
         user_cred: Option<TwitterAppUserCredential>,
     ) -> Result<TwitterClient> {
-        let server = Url::parse("https://api.twitter.com").unwrap();
+        let server = Url::parse("https://api.twitter.com")?;
         let agent: ureq::Agent = ureq::AgentBuilder::new()
             .timeout_read(Duration::from_secs(5))
             .timeout_write(Duration::from_secs(5))
@@ -94,16 +94,21 @@ impl TwitterClientTrait for TwitterClient {
 
     /// Delete(unliked) your liked tweet from your liked tweets
     /// * _tweet_id_str: target tweet id
-    fn delete_liked(&self, _tweet_id_str: &str) -> bool {
+    fn delete_liked(&self, _tweet_id_str: &str) -> Result<()> {
         unimplemented!();
     }
 
     /// Delete your liked tweet
     /// * tweet_id_str: target tweet id
-    fn delete_tweet(&self, tweet_id_str: &str) -> bool {
+    fn delete_tweet(&self, tweet_id_str: &str) -> Result<()> {
+        let user_cred = match &self.user_cred {
+            Some(cred) => cred,
+            None => return Err(anyhow::anyhow!("Credential is not loaded.")),
+        };
+
         let oauth_nonce = Uuid::new_v4();
-        let oauth_token = &self.user_cred.as_ref().unwrap().oauth_token;
-        let oauth_token_secret = &self.user_cred.as_ref().unwrap().oauth_token_secret;
+        let oauth_token = &user_cred.oauth_token;
+        let oauth_token_secret = &user_cred.oauth_token_secret;
         let consumer_key = &self.app_cred.consumer_key;
         let consumer_secret = &self.app_cred.consumer_secret;
 
@@ -115,16 +120,12 @@ impl TwitterClientTrait for TwitterClient {
 
         // メソッドとURL以外のSignature Data構成要素特定
         let oauth_signature_method = "HMAC-SHA1";
-        let oauth_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let oauth_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let oauth_version = "1.0";
 
         let delete_tweet_request = self
             .server
-            .join(&format!("1.1/statuses/destroy/{}.json", tweet_id_str))
-            .unwrap();
+            .join(&format!("1.1/statuses/destroy/{}.json", tweet_id_str))?;
         let signature_data = format!(
             "oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}",
             &consumer_key,
@@ -161,9 +162,9 @@ impl TwitterClientTrait for TwitterClient {
             ).call();
 
         match signed_delete_tweet_response {
-            Ok(_) => return true,
-            Err(_) => return false,
-        };
+            Ok(_) => Ok({}),
+            Err(_) => Err(anyhow::anyhow!("Failed to delete.")),
+        }
     }
 
     /// Retrieve the tweets
@@ -174,26 +175,37 @@ impl TwitterClientTrait for TwitterClient {
     ///   It will be attached time and timezone after that date like 2022-12-31T00:00:00Z
     fn fetch_timeline(
         &self,
-        mut since: Option<String>,
-        mut until: Option<String>,
+        since_arg: Option<String>,
+        until_arg: Option<String>,
     ) -> Result<Vec<Tweet>> {
+        let user_cred = match &self.user_cred {
+            Some(cred) => cred,
+            None => return Err(anyhow::anyhow!("Credential is not loaded.")),
+        };
+
         info!("Pull the target tweets");
-        if since.is_some() {
-            let mut since_date = String::new();
-            since_date.push_str(since.as_ref().unwrap());
-            since_date.push_str("T00:00:00Z");
-            since = Some(since_date);
-        }
-        if until.is_some() {
-            let mut until_date = String::new();
-            until_date.push_str(until.as_ref().unwrap());
-            until_date.push_str("T00:00:00Z");
-            until = Some(until_date);
-        }
+        let since = match since_arg {
+            Some(since_arg) => {
+                let mut since_date = String::new();
+                since_date.push_str(&since_arg);
+                since_date.push_str("T00:00:00Z");
+                Some(since_date)
+            }
+            None => None,
+        };
+        let until = match until_arg {
+            Some(until_arg) => {
+                let mut until_date = String::new();
+                until_date.push_str(&until_arg);
+                until_date.push_str("T00:00:00Z");
+                Some(until_date)
+            }
+            None => None,
+        };
 
         let oauth_nonce = Uuid::new_v4();
-        let oauth_token = &self.user_cred.as_ref().unwrap().oauth_token;
-        let oauth_token_secret = &self.user_cred.as_ref().unwrap().oauth_token_secret;
+        let oauth_token = &user_cred.oauth_token;
+        let oauth_token_secret = &user_cred.oauth_token_secret;
         let consumer_key = &self.app_cred.consumer_key;
         let consumer_secret = &self.app_cred.consumer_secret;
 
@@ -205,16 +217,12 @@ impl TwitterClientTrait for TwitterClient {
 
         // メソッドとURL以外のSignature Data構成要素特定
         let oauth_signature_method = "HMAC-SHA1";
-        let oauth_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let oauth_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let oauth_version = "1.0";
 
-        let fetch_timeline_request = self.server.join(&format!(
-            "2/users/{}/tweets",
-            self.user_cred.as_ref().unwrap().id
-        ))?;
+        let fetch_timeline_request = self
+            .server
+            .join(&format!("2/users/{}/tweets", &user_cred.id))?;
         // TODO: つけるquery paramによってsignature data内で配置すべき位置が異なる、これを自動で実現可能な形にするべきだが現状はできていない
         // TODO: この冗長な記載はリクエストを投げる箇所でも同様になっている
         let signature_data: String;
@@ -330,7 +338,7 @@ impl TwitterClientTrait for TwitterClient {
     /// * user_cred: app defined user credential struct
     ///   It is expected to come from [`TwitterClient::login()`]
     fn init_user_cred(mut self, user_cred: TwitterAppUserCredential) -> Result<TwitterClient> {
-        self.user_cred.replace(user_cred).unwrap();
+        self.user_cred.replace(user_cred);
         Ok(self)
     }
 
@@ -342,7 +350,7 @@ impl TwitterClientTrait for TwitterClient {
         // ユーザーからの入力
         info!("Please input your Twitter username:");
         let mut username = String::new();
-        std::io::stdin().read_line(&mut username).unwrap();
+        std::io::stdin().read_line(&mut username)?;
 
         let liveness_request = self
             .server
@@ -389,12 +397,15 @@ impl TwitterClientTrait for TwitterClient {
             let each_line: Vec<&str> = each.split('=').collect();
             request_token_keys.insert(each_line[0].to_string(), each_line[1].to_string());
         }
+        let req_oauth_token = match request_token_keys.get("oauth_token") {
+            Some(value) => value.to_string(),
+            None => return Err(anyhow::anyhow!("No token is found")),
+        };
 
         // 認証
-        let authorize_request = self.server.join(&format!(
-            "oauth/authorize?oauth_token={}",
-            request_token_keys.get("oauth_token").unwrap()
-        ))?;
+        let authorize_request = self
+            .server
+            .join(&format!("oauth/authorize?oauth_token={}", req_oauth_token))?;
 
         info!(
             "Please open this URL in your browser: {}",
@@ -404,12 +415,12 @@ impl TwitterClientTrait for TwitterClient {
         // ユーザーからの入力
         info!("After authorize app, please input PIN number on the screen for complete the authorization process:");
         let mut s = String::new();
-        std::io::stdin().read_line(&mut s).unwrap();
+        std::io::stdin().read_line(&mut s)?;
 
         // 認証完了
         let access_token_request = self.server.join(&format!(
             "oauth/access_token?oauth_token={}&oauth_verifier={}",
-            request_token_keys.get("oauth_token").unwrap(),
+            req_oauth_token,
             s.trim()
         ))?;
         let access_token_response = self
@@ -426,11 +437,15 @@ impl TwitterClientTrait for TwitterClient {
             access_token_keys.insert(each_line[0].to_string(), each_line[1].to_string());
         }
 
-        let oauth_token = access_token_keys.get("oauth_token").unwrap().to_string();
-        let oauth_token_secret = access_token_keys
-            .get("oauth_token_secret")
-            .unwrap()
-            .to_string();
+        // note: this oauth_token and request's oauth_token is not the same
+        let oauth_token = match access_token_keys.get("oauth_token") {
+            Some(value) => value.to_string(),
+            None => return Err(anyhow::anyhow!("No token is found")),
+        };
+        let oauth_token_secret = match access_token_keys.get("oauth_token_secret") {
+            Some(value) => value.to_string(),
+            None => return Err(anyhow::anyhow!("No token secret is found")),
+        };
         let user_cred = TwitterAppUserCredential {
             username,
             id: user_id,
