@@ -263,8 +263,7 @@ impl TwitterClientTrait for TwitterClient {
     /// It is based on PIN-based authorization and it requires to login on your browser and type the PIN
     /// ref: <https://developer.twitter.com/ja/docs/basics/authentication/overview/pin-based-oauth>
     fn login(&self) -> Result<TwitterAppUserCredential> {
-        // 情報がないのでログイン処理
-        // ユーザーからの入力
+        // User input
         info!("Please input your Twitter username:");
         let mut username = String::new();
         std::io::stdin().read_line(&mut username)?;
@@ -291,7 +290,7 @@ impl TwitterClientTrait for TwitterClient {
         let mut work_path = env::temp_dir();
         work_path.push("dta4hana.work.json");
 
-        // トークンリクエスト
+        // "request token" request
         let request_token_request = self.server.join(&format!(
             "oauth/request_token?oauth_consumer_key={}&oauth_callback=oob",
             self.app_cred.consumer_key
@@ -319,7 +318,7 @@ impl TwitterClientTrait for TwitterClient {
             None => return Err(anyhow::anyhow!("No token is found")),
         };
 
-        // 認証
+        // auth request
         let authorize_request = self
             .server
             .join(&format!("oauth/authorize?oauth_token={}", req_oauth_token))?;
@@ -329,12 +328,12 @@ impl TwitterClientTrait for TwitterClient {
             authorize_request.to_string()
         );
 
-        // ユーザーからの入力
+        // user input again, in here just PIN code
         info!("After authorize app, please input PIN number on the screen for complete the authorization process:");
         let mut s = String::new();
         std::io::stdin().read_line(&mut s)?;
 
-        // 認証完了
+        // completed authentication
         let access_token_request = self.server.join(&format!(
             "oauth/access_token?oauth_token={}&oauth_verifier={}",
             req_oauth_token,
@@ -373,6 +372,11 @@ impl TwitterClientTrait for TwitterClient {
     }
 }
 
+/// Build OAuth(1.0a) Signature value
+/// Encode, sort, join and such required process will be handled
+/// Nonce and timestamp will be generated and this will return the value of authorization header
+///
+/// You can use returned value as `Authorization` value in the header
 fn build_oauth_signature(
     oauth_token: &String,
     oauth_token_secret: &String,
@@ -382,72 +386,92 @@ fn build_oauth_signature(
     request_method: &String,
     query_params: Vec<QueryParam>,
 ) -> String {
+    // Prepare required params other than arguments
+    // TODO: Remove unwrap
+    let oauth_signature_method = "HMAC-SHA1";
+    let oauth_version = "1.0";
     let oauth_nonce = &Uuid::new_v4().to_string();
+    let oauth_timestamp = &SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+
+    // sorted keys are required, that's why BTreeMap instead of HashMap
+    let mut sorted_sig_param_map: BTreeMap<&str, &str> = BTreeMap::new();
+    sorted_sig_param_map.insert("oauth_consumer_key", consumer_key);
+    sorted_sig_param_map.insert("oauth_token", oauth_token);
+    sorted_sig_param_map.insert("oauth_signature_method", oauth_signature_method);
+    sorted_sig_param_map.insert("oauth_version", oauth_version);
+    sorted_sig_param_map.insert("oauth_nonce", oauth_nonce);
+    sorted_sig_param_map.insert("oauth_timestamp", oauth_timestamp);
+
+    // query is also need to add in here, so retrieve all params and insert in there
+    for each in &query_params {
+        sorted_sig_param_map.insert(&each.key, &each.encoded_value);
+    }
+
+    let mut signature_data = String::new();
+    let mut sig_peekable_param_map = sorted_sig_param_map.iter().peekable();
+
+    while sig_peekable_param_map.peek().is_some() {
+        // TODO: remove unwrap
+        let next_item = sig_peekable_param_map.next().unwrap();
+        // 0: key, 1: value, `{}={}` is for key=value format
+        signature_data.push_str(format!("{}={}", next_item.0, next_item.1).as_str());
+
+        // will add "&" only if we have a next item
+        // it is for `key1=value1&key2=value2`
+        if sig_peekable_param_map.peek().is_some() {
+            signature_data.push('&');
+        }
+    }
+
+    // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
     let encoded_consumer_secret: String =
         url::form_urlencoded::byte_serialize(consumer_secret.as_bytes()).collect();
     let encoded_oauth_token_secret: String =
         url::form_urlencoded::byte_serialize(oauth_token_secret.as_bytes()).collect();
     let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
 
-    // メソッドとURL以外のSignature Data構成要素特定
-    let oauth_timestamp = &SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        .to_string();
-    let oauth_signature_method = "HMAC-SHA1";
-    let oauth_version = "1.0";
-    let mut aaa: BTreeMap<&str, &str> = BTreeMap::new();
-    aaa.insert("oauth_consumer_key", consumer_key);
-    aaa.insert("oauth_nonce", oauth_nonce);
-    aaa.insert("oauth_signature_method", oauth_signature_method);
-    aaa.insert("oauth_timestamp", oauth_timestamp);
-    aaa.insert("oauth_token", oauth_token);
-    aaa.insert("oauth_version", oauth_version);
-
-    for each in &query_params {
-        aaa.insert(&each.key, &each.encoded_value);
-    }
-
-    let mut signature_data2 = String::new();
-    //let is_empty = scores.iter().peekable().peek().is_none();.
-    let mut aaa_peakable = aaa.iter().peekable();
-    while aaa_peakable.peek().is_some() {
-        let ppp = aaa_peakable.next().unwrap();
-        signature_data2.push_str(format!("{}={}", ppp.0, ppp.1).as_str());
-        if aaa_peakable.peek().is_some() {
-            signature_data2.push('&');
-        }
-    }
-
-    // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
     let encoded_request_target: String =
         url::form_urlencoded::byte_serialize(target_endpoint.as_str().as_bytes()).collect();
     let encoded_sigature_data: String =
-        url::form_urlencoded::byte_serialize(signature_data2.as_bytes()).collect();
+        url::form_urlencoded::byte_serialize(signature_data.as_bytes()).collect();
     let joined_signature_data = format!(
         "{}&{}&{}",
         request_method, encoded_request_target, encoded_sigature_data
     );
+
     let hmac_digest =
         hmacsha1::hmac_sha1(signagure_key.as_bytes(), joined_signature_data.as_bytes());
     let signature = base64::encode(hmac_digest);
     let encoded_signature: String =
         url::form_urlencoded::byte_serialize(signature.as_str().as_bytes()).collect();
+
+    // Authorization header will use this value, sorted keys are required in here as well
     let oauth_sig = format!(
         "OAuth oauth_consumer_key={},oauth_nonce={},oauth_signature={},oauth_signature_method={},oauth_timestamp={},oauth_token={},oauth_version={}",
         consumer_key, oauth_nonce, encoded_signature, oauth_signature_method, oauth_timestamp, oauth_token, oauth_version);
     oauth_sig
 }
 
+/// Query Param Package
+/// This is convenient struct for handling raw param and encoded param
+/// Encoded param is intended for oauth sigature data
+/// At the moment, it assumes key will not be required to encode
 #[derive(Clone)]
-pub struct QueryParam {
+struct QueryParam {
     key: String,
     value: String,
     encoded_value: String,
 }
 
 impl QueryParam {
+    /// Constructs new Query Param
+    /// Value will be url encoded
+    /// * key:  Query parameter key
+    /// * value: Query parameter value
     fn new(key: &str, value: &str) -> Self {
         let encoded_value: String =
             url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
