@@ -36,16 +36,16 @@ pub fn delete_tweets(
 
     let mut is_continued = true;
     while is_continued {
-        let cloned_since = since.clone();
-        let cloned_until = until.clone();
-        let result = tw_client.fetch_timeline(cloned_since, cloned_until);
+        let result = match tw_client.fetch_timeline(since.clone(), until.clone()) {
+            Ok(result) => result,
+            Err(_) => {
+                is_continued = false;
+                info!("Looks nothing to delete. Exit the execution.");
+                break;
+            }
+        };
 
-        if result.is_err() {
-            is_continued = false;
-            info!("Looks nothing to delete. Exit the execution.");
-            break;
-        }
-        let total_tweets_count = &result.as_ref().unwrap().len();
+        let total_tweets_count = &result.len();
         if total_tweets_count.eq(&0) {
             is_continued = false;
             info!("Looks nothing to delete. Exit the execution.");
@@ -54,9 +54,9 @@ pub fn delete_tweets(
 
         let mut deleted_tweets_count = 0;
         info!("Start to delete {} tweets", total_tweets_count);
-        for val in result.unwrap().iter() {
+        for val in result {
             let deleted = tw_client.delete_tweet(&val.id);
-            if deleted != true {
+            if deleted.is_err() {
                 return Err(anyhow::anyhow!("Delete was failed with {:?}", &val.id));
             }
             deleted_tweets_count += 1;
@@ -70,10 +70,11 @@ pub fn delete_tweets(
         }
         info!("Finished the round of deletion! (will continue to delete in the next round if necessary)")
     }
-    Ok({})
+    Ok(())
 }
 
 /// Fetch the tweets, but actually it is typically for the test purpose and not intended to use by the user
+/// At the moment, flush got tweets(only id + metrics) for debugging purpose
 ///  
 /// * tw_client: Twitter Client with valid credentials are required
 /// * since: the first date of getting tweets e.g. 2022-01-01
@@ -87,8 +88,12 @@ pub fn fetch_tweets(
 ) -> Result<()> {
     debug!("args: since={:?}, until={:?}", since, until);
 
-    let result: Result<Vec<Tweet>, Error> = tw_client.fetch_timeline(since, until);
-    for val in result.as_ref().unwrap() {
+    let result = match tw_client.fetch_timeline(since, until) {
+        Ok(result) => result,
+        Err(_) => return Err(anyhow::anyhow!("Failed or nothing to fetch the tweets")),
+    };
+
+    for val in &result {
         debug!("id: {}, created_at: {}", &val.id, &val.created_at);
     }
 
@@ -102,8 +107,8 @@ pub fn fetch_tweets(
         debug!("Work file {} will be created", work_path.display());
     }
     let mut file = File::create(work_path)?;
-    serde_json::to_writer(&mut file, &result.unwrap())?;
-    Ok({})
+    serde_json::to_writer(&mut file, &result)?;
+    Ok(())
 }
 
 /// Initalize Twitter Client
@@ -120,20 +125,18 @@ pub fn init_client(
     consumer_secret: String,
     config_path: &PathBuf,
 ) -> Result<TwitterClient, Error> {
-    let loaded_user_cred = match load_app_user_credential(&config_path) {
+    let loaded_user_cred = match load_app_user_credential(config_path) {
         Ok(user_cred) => Some(user_cred),
         Err(_) => None,
     };
     let mut tw_client: TwitterClient;
     if loaded_user_cred.is_some() {
-        tw_client =
-            TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred).unwrap();
+        tw_client = TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred);
     } else {
-        tw_client =
-            TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred).unwrap();
+        tw_client = TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred);
 
-        let user_cred = login_and_store(&tw_client, config_path).unwrap();
-        tw_client = tw_client.init_user_cred(user_cred).unwrap();
+        let user_cred = login_and_store(&tw_client, config_path)?;
+        tw_client = tw_client.init_user_cred(user_cred)?;
     };
 
     Ok(tw_client)
@@ -145,7 +148,7 @@ pub fn init_client(
 /// * config_path: path of storing the user credential after login
 pub fn login(tw_client: &impl TwitterClientTrait, config_path: &PathBuf) -> Result<()> {
     let _ = login_and_store(tw_client, config_path);
-    Ok({})
+    Ok(())
 }
 
 /// Unlike your liked tweets
@@ -162,11 +165,11 @@ pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
     for val in result.iter() {
         let deleted = tw_client.delete_liked(&val.id);
         debug!("Id: {:?}", &val.id);
-        if deleted != true {
+        if deleted.is_err() {
             return Err(anyhow::anyhow!("Unlike was failed with {:?}", &val.id));
         }
     }
-    Ok({})
+    Ok(())
 }
 
 /// Load your tweets from the file
@@ -202,7 +205,7 @@ fn login_and_store(
     tw_client: &impl TwitterClientTrait,
     config_path: &PathBuf,
 ) -> Result<TwitterAppUserCredential> {
-    let user_cred = tw_client.login().unwrap();
+    let user_cred = tw_client.login()?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -214,6 +217,8 @@ fn login_and_store(
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Ok;
+
     use crate::{
         dta_app::{delete_tweets, unlike_likes},
         twitter_client::MockTwitterClientTrait,
@@ -226,7 +231,7 @@ mod tests {
         tw_client
             .expect_fetch_timeline()
             .returning(|_, _| Ok(vec![]));
-        tw_client.expect_delete_tweet().returning(|_| true);
+        tw_client.expect_delete_tweet().returning(|_| Ok(()));
         let result = delete_tweets(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);
     }
@@ -239,7 +244,7 @@ mod tests {
         tw_client
             .expect_fetch_timeline()
             .returning(|_, _| Ok(vec![]));
-        tw_client.expect_delete_tweet().returning(|_| true);
+        tw_client.expect_delete_tweet().returning(|_| Ok(()));
         let result = delete_tweets(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);
     }
@@ -252,7 +257,7 @@ mod tests {
         tw_client
             .expect_fetch_timeline()
             .returning(|_, _| Ok(vec![]));
-        tw_client.expect_delete_tweet().returning(|_| true);
+        tw_client.expect_delete_tweet().returning(|_| Ok(()));
         let result = delete_tweets(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);
     }
