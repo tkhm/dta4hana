@@ -2,7 +2,7 @@
 //! It calls APIs and has its required implementation(e.g. handling OAuth flow)
 //! Define it as trait and implement it for the testability(using mock)
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -206,120 +206,48 @@ impl TwitterClientTrait for TwitterClient {
             None => None,
         };
 
-        let oauth_nonce = Uuid::new_v4();
         let oauth_token = &user_cred.oauth_token;
         let oauth_token_secret = &user_cred.oauth_token_secret;
         let consumer_key = &self.app_cred.consumer_key;
         let consumer_secret = &self.app_cred.consumer_secret;
 
-        let encoded_consumer_secret: String =
-            url::form_urlencoded::byte_serialize(consumer_secret.as_bytes()).collect();
-        let encoded_oauth_token_secret: String =
-            url::form_urlencoded::byte_serialize(oauth_token_secret.as_bytes()).collect();
-        let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
-
-        // メソッドとURL以外のSignature Data構成要素特定
-        let oauth_signature_method = "HMAC-SHA1";
-        let oauth_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let oauth_version = "1.0";
-
         let fetch_timeline_request = self
             .server
             .join(&format!("2/users/{}/tweets", &user_cred.id))?;
-        // TODO: つけるquery paramによってsignature data内で配置すべき位置が異なる、これを自動で実現可能な形にするべきだが現状はできていない
-        // TODO: この冗長な記載はリクエストを投げる箇所でも同様になっている
-        let signature_data: String;
+        let mut query_params: Vec<QueryParam> = vec![
+            QueryParam::new("max_results", "100"),
+            QueryParam::new("tweet.fields", "created_at,public_metrics,attachments"),
+        ];
+
         if since.is_some() && until.is_some() {
-            let encoded_until: String =
-                url::form_urlencoded::byte_serialize(until.as_ref().unwrap().as_bytes()).collect();
-            let encoded_since: String =
-                url::form_urlencoded::byte_serialize(since.as_ref().unwrap().as_bytes()).collect();
-            signature_data = format!(
-                "end_time={}&max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&start_time={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
-                &encoded_until,
-                &consumer_key,
-                &oauth_nonce,
-                &oauth_signature_method,
-                &oauth_timestamp,
-                &oauth_token,
-                &oauth_version,
-                &encoded_since
-            );
+            query_params.push(QueryParam::new("end_time", until.unwrap().as_str()));
+            query_params.push(QueryParam::new("start_time", since.unwrap().as_str()));
         } else if since.is_some() {
-            let encoded_since: String =
-                url::form_urlencoded::byte_serialize(since.as_ref().unwrap().as_bytes()).collect();
-            signature_data = format!(
-                "max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&start_time={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
-                &consumer_key,
-                &oauth_nonce,
-                &oauth_signature_method,
-                &oauth_timestamp,
-                &oauth_token,
-                &oauth_version,
-                &encoded_since
-            );
+            query_params.push(QueryParam::new("start_time", since.unwrap().as_str()));
         } else if until.is_some() {
-            let encoded_until: String =
-                url::form_urlencoded::byte_serialize(until.as_ref().unwrap().as_bytes()).collect();
-            signature_data = format!(
-                "end_time={}&max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
-                &encoded_until,
-                &consumer_key,
-                &oauth_nonce,
-                &oauth_signature_method,
-                &oauth_timestamp,
-                &oauth_token,
-                &oauth_version
-            );
-        } else {
-            signature_data = format!(
-                "max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
-                &consumer_key,
-                &oauth_nonce,
-                &oauth_signature_method,
-                &oauth_timestamp,
-                &oauth_token,
-                &oauth_version
-            );
+            query_params.push(QueryParam::new("end_time", until.unwrap().as_str()));
         }
 
-        // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
-        let request_method = String::from("GET");
-        let encoded_request_target: String =
-            url::form_urlencoded::byte_serialize(fetch_timeline_request.as_str().as_bytes())
-                .collect();
-        let encoded_sigature_data: String =
-            url::form_urlencoded::byte_serialize(signature_data.as_bytes()).collect();
-        let joined_signature_data = format!(
-            "{}&{}&{}",
-            request_method, encoded_request_target, encoded_sigature_data
-        );
+        let request_method = &String::from("GET");
 
-        let hmac_digest =
-            hmacsha1::hmac_sha1(signagure_key.as_bytes(), joined_signature_data.as_bytes());
-        let signature = base64::encode(hmac_digest);
-        let encoded_signature: String =
-            url::form_urlencoded::byte_serialize(signature.as_str().as_bytes()).collect();
+        let oauth_signature = build_oauth_signature(
+            oauth_token,
+            oauth_token_secret,
+            consumer_key,
+            consumer_secret,
+            fetch_timeline_request.clone(),
+            request_method,
+            query_params.clone(),
+        );
 
         let mut signed_fetch_timeline_request = self
             .agent
             .request_url(request_method.as_str(), &fetch_timeline_request)
-            .query("max_results", "100")
-            .query("tweet.fields", "created_at,public_metrics,attachments")
-            .set("Authorization", &format!(
-                "OAuth oauth_consumer_key={},oauth_nonce={},oauth_signature={},oauth_signature_method={},oauth_timestamp={},oauth_token={},oauth_version={}",
-                consumer_key, oauth_nonce, encoded_signature, oauth_signature_method, oauth_timestamp, oauth_token, &oauth_version)
-            );
-        if since.is_some() && until.is_some() {
-            signed_fetch_timeline_request = signed_fetch_timeline_request
-                .query("end_time", until.as_ref().unwrap())
-                .query("start_time", since.as_ref().unwrap());
-        } else if since.is_some() {
+            .set("Authorization", &oauth_signature);
+        for each in query_params {
+            debug!("key:{}, value:{}", each.key, each.value);
             signed_fetch_timeline_request =
-                signed_fetch_timeline_request.query("start_time", since.as_ref().unwrap());
-        } else if until.is_some() {
-            signed_fetch_timeline_request =
-                signed_fetch_timeline_request.query("end_time", until.as_ref().unwrap());
+                signed_fetch_timeline_request.query(&each.key, &each.value);
         }
 
         let signed_fetch_timeline_response = signed_fetch_timeline_request.call();
@@ -456,5 +384,92 @@ impl TwitterClientTrait for TwitterClient {
             oauth_token_secret,
         };
         Ok(user_cred)
+    }
+}
+
+fn build_oauth_signature(
+    oauth_token: &String,
+    oauth_token_secret: &String,
+    consumer_key: &String,
+    consumer_secret: &String,
+    target_endpoint: Url,
+    request_method: &String,
+    query_params: Vec<QueryParam>,
+) -> String {
+    let oauth_nonce = &Uuid::new_v4().to_string();
+    let encoded_consumer_secret: String =
+        url::form_urlencoded::byte_serialize(consumer_secret.as_bytes()).collect();
+    let encoded_oauth_token_secret: String =
+        url::form_urlencoded::byte_serialize(oauth_token_secret.as_bytes()).collect();
+    let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
+
+    // メソッドとURL以外のSignature Data構成要素特定
+    let oauth_timestamp = &SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let oauth_signature_method = "HMAC-SHA1";
+    let oauth_version = "1.0";
+    let mut aaa: BTreeMap<&str, &str> = BTreeMap::new();
+    aaa.insert("oauth_consumer_key", consumer_key);
+    aaa.insert("oauth_nonce", oauth_nonce);
+    aaa.insert("oauth_signature_method", oauth_signature_method);
+    aaa.insert("oauth_timestamp", oauth_timestamp);
+    aaa.insert("oauth_token", oauth_token);
+    aaa.insert("oauth_version", oauth_version);
+
+    for each in &query_params {
+        aaa.insert(&each.key, &each.encoded_value);
+    }
+
+    let mut signature_data2 = String::new();
+    //let is_empty = scores.iter().peekable().peek().is_none();.
+    let mut aaa_peakable = aaa.iter().peekable();
+    while aaa_peakable.peek().is_some() {
+        let ppp = aaa_peakable.next().unwrap();
+        signature_data2.push_str(format!("{}={}", ppp.0, ppp.1).as_str());
+        if aaa_peakable.peek().is_some() {
+            signature_data2.push('&');
+        }
+    }
+
+    // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
+    let encoded_request_target: String =
+        url::form_urlencoded::byte_serialize(target_endpoint.as_str().as_bytes()).collect();
+    let encoded_sigature_data: String =
+        url::form_urlencoded::byte_serialize(signature_data2.as_bytes()).collect();
+    let joined_signature_data = format!(
+        "{}&{}&{}",
+        request_method, encoded_request_target, encoded_sigature_data
+    );
+    let hmac_digest =
+        hmacsha1::hmac_sha1(signagure_key.as_bytes(), joined_signature_data.as_bytes());
+    let signature = base64::encode(hmac_digest);
+    let encoded_signature: String =
+        url::form_urlencoded::byte_serialize(signature.as_str().as_bytes()).collect();
+    let oauth_sig = format!(
+        "OAuth oauth_consumer_key={},oauth_nonce={},oauth_signature={},oauth_signature_method={},oauth_timestamp={},oauth_token={},oauth_version={}",
+        consumer_key, oauth_nonce, encoded_signature, oauth_signature_method, oauth_timestamp, oauth_token, oauth_version);
+    oauth_sig
+}
+
+#[derive(Clone)]
+pub struct QueryParam {
+    key: String,
+    value: String,
+    encoded_value: String,
+}
+
+impl QueryParam {
+    fn new(key: &str, value: &str) -> Self {
+        let encoded_value: String =
+            url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
+
+        QueryParam {
+            key: key.to_string(),
+            value: value.to_string(),
+            encoded_value,
+        }
     }
 }
