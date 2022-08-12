@@ -70,7 +70,7 @@ pub fn delete_tweets(
         }
         info!("Finished the round of deletion! (will continue to delete in the next round if necessary)")
     }
-    Ok({})
+    Ok(())
 }
 
 /// Fetch the tweets, but actually it is typically for the test purpose and not intended to use by the user
@@ -87,7 +87,7 @@ pub fn fetch_tweets(
 ) -> Result<()> {
     debug!("args: since={:?}, until={:?}", since, until);
 
-    let result = match tw_client.fetch_timeline(since.clone(), until.clone()) {
+    let result = match tw_client.fetch_timeline(since, until) {
         Ok(result) => result,
         Err(_) => return Err(anyhow::anyhow!("Failed or nothing to fetch the tweets")),
     };
@@ -107,7 +107,7 @@ pub fn fetch_tweets(
     }
     let mut file = File::create(work_path)?;
     serde_json::to_writer(&mut file, &result)?;
-    Ok({})
+    Ok(())
 }
 
 /// Initalize Twitter Client
@@ -124,15 +124,15 @@ pub fn init_client(
     consumer_secret: String,
     config_path: &PathBuf,
 ) -> Result<TwitterClient, Error> {
-    let loaded_user_cred = match load_app_user_credential(&config_path) {
+    let loaded_user_cred = match load_app_user_credential(config_path) {
         Ok(user_cred) => Some(user_cred),
         Err(_) => None,
     };
     let mut tw_client: TwitterClient;
     if loaded_user_cred.is_some() {
-        tw_client = TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred)?;
+        tw_client = TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred);
     } else {
-        tw_client = TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred)?;
+        tw_client = TwitterClient::new(api_key, consumer_key, consumer_secret, loaded_user_cred);
 
         let user_cred = login_and_store(&tw_client, config_path)?;
         tw_client = tw_client.init_user_cred(user_cred)?;
@@ -147,7 +147,7 @@ pub fn init_client(
 /// * config_path: path of storing the user credential after login
 pub fn login(tw_client: &impl TwitterClientTrait, config_path: &PathBuf) -> Result<()> {
     let _ = login_and_store(tw_client, config_path);
-    Ok({})
+    Ok(())
 }
 
 /// Unlike your liked tweets
@@ -168,7 +168,7 @@ pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
             return Err(anyhow::anyhow!("Unlike was failed with {:?}", &val.id));
         }
     }
-    Ok({})
+    Ok(())
 }
 
 /// Load your tweets from the file

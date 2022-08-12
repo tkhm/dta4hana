@@ -50,7 +50,7 @@ pub trait TwitterClientTrait {
         consumer_key: String,
         consumer_secret: String,
         user_cred: Option<TwitterAppUserCredential>,
-    ) -> Result<TwitterClient>;
+    ) -> Self;
     fn delete_liked(&self, tweet_id_str: &str) -> Result<()>;
     fn delete_tweet(&self, tweet_id_str: &str) -> Result<()>;
     fn fetch_timeline(&self, since: Option<String>, until: Option<String>) -> Result<Vec<Tweet>>;
@@ -71,8 +71,11 @@ impl TwitterClientTrait for TwitterClient {
         consumer_key: String,
         consumer_secret: String,
         user_cred: Option<TwitterAppUserCredential>,
-    ) -> Result<TwitterClient> {
-        let server = Url::parse("https://api.twitter.com")?;
+    ) -> Self {
+        let server = match Url::parse("https://api.twitter.com") {
+            Ok(url) => url,
+            Err(_) => panic!("API Endpoints is not valid."),
+        };
         let agent: ureq::Agent = ureq::AgentBuilder::new()
             .timeout_read(Duration::from_secs(5))
             .timeout_write(Duration::from_secs(5))
@@ -84,12 +87,12 @@ impl TwitterClientTrait for TwitterClient {
             consumer_secret,
         };
 
-        Ok(TwitterClient {
+        TwitterClient {
             agent,
             server,
             app_cred,
             user_cred,
-        })
+        }
     }
 
     /// Delete(unliked) your liked tweet from your liked tweets
@@ -113,9 +116,9 @@ impl TwitterClientTrait for TwitterClient {
         let consumer_secret = &self.app_cred.consumer_secret;
 
         let encoded_consumer_secret: String =
-            url::form_urlencoded::byte_serialize(&consumer_secret.as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(consumer_secret.as_bytes()).collect();
         let encoded_oauth_token_secret: String =
-            url::form_urlencoded::byte_serialize(&oauth_token_secret.as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(oauth_token_secret.as_bytes()).collect();
         let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
 
         // メソッドとURL以外のSignature Data構成要素特定
@@ -139,19 +142,19 @@ impl TwitterClientTrait for TwitterClient {
         // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
         let request_method = String::from("POST");
         let encoded_request_target: String =
-            url::form_urlencoded::byte_serialize(&delete_tweet_request.as_str().as_bytes())
+            url::form_urlencoded::byte_serialize(delete_tweet_request.as_str().as_bytes())
                 .collect();
         let encoded_sigature_data: String =
-            url::form_urlencoded::byte_serialize(&signature_data.as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(signature_data.as_bytes()).collect();
         let joined_signature_data = format!(
             "{}&{}&{}",
             request_method, encoded_request_target, encoded_sigature_data
         );
         let hmac_digest =
-            hmacsha1::hmac_sha1(&signagure_key.as_bytes(), &joined_signature_data.as_bytes());
+            hmacsha1::hmac_sha1(signagure_key.as_bytes(), joined_signature_data.as_bytes());
         let signature = base64::encode(hmac_digest);
         let encoded_signature: String =
-            url::form_urlencoded::byte_serialize(&signature.as_str().as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(signature.as_str().as_bytes()).collect();
 
         let signed_delete_tweet_response = self
             .agent
@@ -162,7 +165,7 @@ impl TwitterClientTrait for TwitterClient {
             ).call();
 
         match signed_delete_tweet_response {
-            Ok(_) => Ok({}),
+            Ok(_) => Ok(()),
             Err(_) => Err(anyhow::anyhow!("Failed to delete.")),
         }
     }
@@ -210,9 +213,9 @@ impl TwitterClientTrait for TwitterClient {
         let consumer_secret = &self.app_cred.consumer_secret;
 
         let encoded_consumer_secret: String =
-            url::form_urlencoded::byte_serialize(&consumer_secret.as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(consumer_secret.as_bytes()).collect();
         let encoded_oauth_token_secret: String =
-            url::form_urlencoded::byte_serialize(&oauth_token_secret.as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(oauth_token_secret.as_bytes()).collect();
         let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
 
         // メソッドとURL以外のSignature Data構成要素特定
@@ -228,9 +231,9 @@ impl TwitterClientTrait for TwitterClient {
         let signature_data: String;
         if since.is_some() && until.is_some() {
             let encoded_until: String =
-                url::form_urlencoded::byte_serialize(&until.as_ref().unwrap().as_bytes()).collect();
+                url::form_urlencoded::byte_serialize(until.as_ref().unwrap().as_bytes()).collect();
             let encoded_since: String =
-                url::form_urlencoded::byte_serialize(&since.as_ref().unwrap().as_bytes()).collect();
+                url::form_urlencoded::byte_serialize(since.as_ref().unwrap().as_bytes()).collect();
             signature_data = format!(
                 "end_time={}&max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&start_time={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
                 &encoded_until,
@@ -244,7 +247,7 @@ impl TwitterClientTrait for TwitterClient {
             );
         } else if since.is_some() {
             let encoded_since: String =
-                url::form_urlencoded::byte_serialize(&since.as_ref().unwrap().as_bytes()).collect();
+                url::form_urlencoded::byte_serialize(since.as_ref().unwrap().as_bytes()).collect();
             signature_data = format!(
                 "max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&start_time={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
                 &consumer_key,
@@ -257,7 +260,7 @@ impl TwitterClientTrait for TwitterClient {
             );
         } else if until.is_some() {
             let encoded_until: String =
-                url::form_urlencoded::byte_serialize(&until.as_ref().unwrap().as_bytes()).collect();
+                url::form_urlencoded::byte_serialize(until.as_ref().unwrap().as_bytes()).collect();
             signature_data = format!(
                 "end_time={}&max_results=100&oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}&tweet.fields=created_at%2Cpublic_metrics%2Cattachments",
                 &encoded_until,
@@ -283,20 +286,20 @@ impl TwitterClientTrait for TwitterClient {
         // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
         let request_method = String::from("GET");
         let encoded_request_target: String =
-            url::form_urlencoded::byte_serialize(&fetch_timeline_request.as_str().as_bytes())
+            url::form_urlencoded::byte_serialize(fetch_timeline_request.as_str().as_bytes())
                 .collect();
         let encoded_sigature_data: String =
-            url::form_urlencoded::byte_serialize(&signature_data.as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(signature_data.as_bytes()).collect();
         let joined_signature_data = format!(
             "{}&{}&{}",
             request_method, encoded_request_target, encoded_sigature_data
         );
 
         let hmac_digest =
-            hmacsha1::hmac_sha1(&signagure_key.as_bytes(), &joined_signature_data.as_bytes());
+            hmacsha1::hmac_sha1(signagure_key.as_bytes(), joined_signature_data.as_bytes());
         let signature = base64::encode(hmac_digest);
         let encoded_signature: String =
-            url::form_urlencoded::byte_serialize(&signature.as_str().as_bytes()).collect();
+            url::form_urlencoded::byte_serialize(signature.as_str().as_bytes()).collect();
 
         let mut signed_fetch_timeline_request = self
             .agent

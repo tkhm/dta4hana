@@ -81,15 +81,15 @@ mod tests {
     fn delete_tweets() {
         let api_key = match option_env!("DTA4HANA_B") {
             Some(env) => env.to_string(),
-            None => panic!(), 
+            None => panic!(),
         };
         let consumer_key = match option_env!("DTA4HANA_CK") {
             Some(env) => env.to_string(),
-            None => panic!(), 
+            None => panic!(),
         };
         let consumer_secret = match option_env!("DTA4HANA_CS") {
             Some(env) => env.to_string(),
-            None => panic!(), 
+            None => panic!(),
         };
 
         let tw_client: TwitterClient = dta_app::init_client(
@@ -108,15 +108,15 @@ mod tests {
     fn unlike_likes() {
         let api_key = match option_env!("DTA4HANA_B") {
             Some(env) => env.to_string(),
-            None => panic!(), 
+            None => panic!(),
         };
         let consumer_key = match option_env!("DTA4HANA_CK") {
             Some(env) => env.to_string(),
-            None => panic!(), 
+            None => panic!(),
         };
         let consumer_secret = match option_env!("DTA4HANA_CS") {
             Some(env) => env.to_string(),
-            None => panic!(), 
+            None => panic!(),
         };
 
         let tw_client: TwitterClient = dta_app::init_client(
