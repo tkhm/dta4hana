@@ -109,60 +109,34 @@ impl TwitterClientTrait for TwitterClient {
             None => return Err(anyhow::anyhow!("Credential is not loaded.")),
         };
 
-        let oauth_nonce = Uuid::new_v4();
         let oauth_token = &user_cred.oauth_token;
         let oauth_token_secret = &user_cred.oauth_token_secret;
         let consumer_key = &self.app_cred.consumer_key;
         let consumer_secret = &self.app_cred.consumer_secret;
 
-        let encoded_consumer_secret: String =
-            url::form_urlencoded::byte_serialize(consumer_secret.as_bytes()).collect();
-        let encoded_oauth_token_secret: String =
-            url::form_urlencoded::byte_serialize(oauth_token_secret.as_bytes()).collect();
-        let signagure_key = format!("{}&{}", encoded_consumer_secret, encoded_oauth_token_secret);
-
-        // メソッドとURL以外のSignature Data構成要素特定
-        let oauth_signature_method = "HMAC-SHA1";
-        let oauth_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let oauth_version = "1.0";
-
-        let delete_tweet_request = self
+        let request_url = self
             .server
             .join(&format!("1.1/statuses/destroy/{}.json", tweet_id_str))?;
-        let signature_data = format!(
-            "oauth_consumer_key={}&oauth_nonce={}&oauth_signature_method={}&oauth_timestamp={}&oauth_token={}&oauth_version={}",
-            &consumer_key,
-            &oauth_nonce,
-            &oauth_signature_method,
-            &oauth_timestamp,
-            &oauth_token,
-            &oauth_version
-        );
+        let query_params: Vec<QueryParam> = vec![];
 
         // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
-        let request_method = String::from("POST");
-        let encoded_request_target: String =
-            url::form_urlencoded::byte_serialize(delete_tweet_request.as_str().as_bytes())
-                .collect();
-        let encoded_sigature_data: String =
-            url::form_urlencoded::byte_serialize(signature_data.as_bytes()).collect();
-        let joined_signature_data = format!(
-            "{}&{}&{}",
-            request_method, encoded_request_target, encoded_sigature_data
+        let request_method = &String::from("POST");
+
+        let oauth_signature = build_oauth_signature(
+            oauth_token,
+            oauth_token_secret,
+            consumer_key,
+            consumer_secret,
+            request_url.clone(),
+            request_method,
+            query_params,
         );
-        let hmac_digest =
-            hmacsha1::hmac_sha1(signagure_key.as_bytes(), joined_signature_data.as_bytes());
-        let signature = base64::encode(hmac_digest);
-        let encoded_signature: String =
-            url::form_urlencoded::byte_serialize(signature.as_str().as_bytes()).collect();
 
         let signed_delete_tweet_response = self
             .agent
-            .request_url(request_method.as_str(), &delete_tweet_request)
-            .set("Authorization", &format!(
-                "OAuth oauth_consumer_key={},oauth_nonce={},oauth_signature={},oauth_signature_method={},oauth_timestamp={},oauth_token={},oauth_version={}",
-                consumer_key, oauth_nonce, encoded_signature, oauth_signature_method, oauth_timestamp, oauth_token, &oauth_version)
-            ).call();
+            .request_url(request_method.as_str(), &request_url)
+            .set("Authorization", &oauth_signature)
+            .call();
 
         match signed_delete_tweet_response {
             Ok(_) => Ok(()),
@@ -211,7 +185,7 @@ impl TwitterClientTrait for TwitterClient {
         let consumer_key = &self.app_cred.consumer_key;
         let consumer_secret = &self.app_cred.consumer_secret;
 
-        let fetch_timeline_request = self
+        let request_url = self
             .server
             .join(&format!("2/users/{}/tweets", &user_cred.id))?;
         let mut query_params: Vec<QueryParam> = vec![
@@ -220,12 +194,24 @@ impl TwitterClientTrait for TwitterClient {
         ];
 
         if since.is_some() && until.is_some() {
-            query_params.push(QueryParam::new("end_time", until.unwrap().as_str()));
-            query_params.push(QueryParam::new("start_time", since.unwrap().as_str()));
+            query_params.push(QueryParam::new(
+                "end_time",
+                until.as_ref().unwrap().as_str(),
+            ));
+            query_params.push(QueryParam::new(
+                "start_time",
+                since.as_ref().unwrap().as_str(),
+            ));
         } else if since.is_some() {
-            query_params.push(QueryParam::new("start_time", since.unwrap().as_str()));
+            query_params.push(QueryParam::new(
+                "start_time",
+                since.as_ref().unwrap().as_str(),
+            ));
         } else if until.is_some() {
-            query_params.push(QueryParam::new("end_time", until.unwrap().as_str()));
+            query_params.push(QueryParam::new(
+                "end_time",
+                until.as_ref().unwrap().as_str(),
+            ));
         }
 
         let request_method = &String::from("GET");
@@ -235,14 +221,14 @@ impl TwitterClientTrait for TwitterClient {
             oauth_token_secret,
             consumer_key,
             consumer_secret,
-            fetch_timeline_request.clone(),
+            request_url.clone(),
             request_method,
             query_params.clone(),
         );
 
         let mut signed_fetch_timeline_request = self
             .agent
-            .request_url(request_method.as_str(), &fetch_timeline_request)
+            .request_url(request_method.as_str(), &request_url)
             .set("Authorization", &oauth_signature);
         for each in query_params {
             debug!("key:{}, value:{}", each.key, each.value);
