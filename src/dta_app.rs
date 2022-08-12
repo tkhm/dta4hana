@@ -74,6 +74,7 @@ pub fn delete_tweets(
 }
 
 /// Fetch the tweets, but actually it is typically for the test purpose and not intended to use by the user
+/// At the moment, flush got tweets(only id + metrics) for debugging purpose
 ///  
 /// * tw_client: Twitter Client with valid credentials are required
 /// * since: the first date of getting tweets e.g. 2022-01-01

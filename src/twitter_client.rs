@@ -230,8 +230,9 @@ impl TwitterClientTrait for TwitterClient {
             .agent
             .request_url(request_method.as_str(), &request_url)
             .set("Authorization", &oauth_signature);
+            debug!("Request query key and value:");
         for each in query_params {
-            debug!("key:{}, value:{}", each.key, each.value);
+            debug!("\tkey:{}, value:{}", each.key, each.value);
             signed_fetch_timeline_request =
                 signed_fetch_timeline_request.query(&each.key, &each.value);
         }
