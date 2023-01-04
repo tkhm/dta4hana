@@ -148,6 +148,7 @@ pub fn init_client(
 /// * config_path: path of storing the user credential after login
 pub fn login(tw_client: &impl TwitterClientTrait, config_path: &PathBuf) -> Result<()> {
     let _ = login_and_store(tw_client, config_path);
+    info!("Login process was completed.");
     Ok(())
 }
 

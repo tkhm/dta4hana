@@ -266,12 +266,13 @@ impl TwitterClientTrait for TwitterClient {
     fn login(&self) -> Result<TwitterAppUserCredential> {
         // User input
         info!("Please input your Twitter username:");
-        let mut username = String::new();
-        std::io::stdin().read_line(&mut username)?;
+        let mut username_input = String::new();
+        std::io::stdin().read_line(&mut username_input)?;
+        let username = username_input.trim().to_string();
 
         let liveness_request = self
             .server
-            .join(&format!("2/users/by/username/{}", username.trim()))?;
+            .join(&format!("2/users/by/username/{}", username))?;
         let liveness_response = self
             .agent
             .request_url("GET", &liveness_request)
