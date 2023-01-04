@@ -20,10 +20,6 @@ url = "2.2"
 [dev-dependencies]
 mockall = "0.11"
 
-[dependencies.chrono]
-features = ["serde"]  # We're also going to need the serde feature for the chrono crate, so we can serialize the DateTime field.
-version = "0.4"
-
 [dependencies.serde]  # Add serde in its own section.
 features = ["derive"] # We'll need the derive feature.
 version = "1.0"
