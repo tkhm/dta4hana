@@ -189,7 +189,6 @@ pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
                 );
             } else {
                 // 削除されたツイートに対するUnlikeができないため, ErrよりもContinueする
-                unliked_tweets_count += 1;
                 info!(
                     "(Skipped) Id: {:?}, {} / {}",
                     &val.id, unliked_tweets_count, total_tweets_count
