@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
         Delete { since, until } => dta_app::delete_tweets(&tw_client, since, until),
         Fetch { since, until } => dta_app::fetch_tweets(&tw_client, since, until),
         Login => dta_app::login(&tw_client, &config_file),
-        Unlike => dta_app::unlike_likes(&tw_client),
+        Unlike { since, until } => dta_app::unlike_likes(&tw_client, since, until),
     }?;
     Ok(())
 }
@@ -126,7 +126,7 @@ mod tests {
             &find_default_config_file().unwrap(),
         )
         .unwrap();
-        let result = dta_app::unlike_likes(&tw_client);
+        let result = dta_app::unlike_likes(&tw_client, None, None);
         assert_eq!(result.is_ok(), true);
     }
 }

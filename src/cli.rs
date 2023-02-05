@@ -52,5 +52,19 @@ pub enum Action {
     #[structopt(about = "Login and overwrite existing credential")]
     Login,
     #[structopt(about = "Unlike your liked tweets")]
-    Unlike,
+    Unlike {
+        #[structopt(
+            short,
+            long,
+            help = "The most earliest date for the action e.g. 2022-01-01"
+        )]
+        since: Option<String>,
+
+        #[structopt(
+            short,
+            long,
+            help = "The most latest date for the action e.g. 2022-12-31"
+        )]
+        until: Option<String>,
+    },
 }
