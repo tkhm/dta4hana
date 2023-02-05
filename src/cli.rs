@@ -51,6 +51,6 @@ pub enum Action {
     },
     #[structopt(about = "Login and overwrite existing credential")]
     Login,
-    #[structopt(about = "Unlike your liked tweets")]
+    #[structopt(about = "Unlike your liked tweets from the latest to the older")]
     Unlike,
 }

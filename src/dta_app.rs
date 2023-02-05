@@ -18,7 +18,7 @@ use crate::twitter_object::Tweet;
 
 /// Delete the tweets
 ///
-/// It can delete tweets only one by one, but accepts to receive desired target periods and try to repear the deletion
+/// It can delete tweets only one by one, but accepts to receive desired target periods and try to repeat the deletion
 /// In here, get target 100 tweets, delete it and repeat until the end(or API limits)
 /// * tw_client: Twitter Client with valid credentials are required
 /// * since: the first date of getting tweets e.g. 2022-01-01
@@ -154,9 +154,8 @@ pub fn login(tw_client: &impl TwitterClientTrait, config_path: &PathBuf) -> Resu
 
 /// Unlike your liked tweets
 ///
-/// It is not implemented yet, but it must be the similar implementation with [`delete_tweets()`]
-/// since and until is not supported by API
-/// If we need to implement it, we need to handle it locally
+/// It can unlike tweets only one by one, but try to repeat the unlike.
+/// In here, get target 100 tweets, unlike it and repeat until the end(or API limits)
 pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
     info!("We can't unlike tweets all at once due to API limitation and current implementations. It will repeat your unlike until it becomes 0. (or API call limits)");
 
@@ -166,7 +165,7 @@ pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
             Ok(result) => result,
             Err(_) => {
                 is_continued = false;
-                info!("Looks nothing to delete. Exit the execution.");
+                info!("Looks nothing to unlike. Exit the execution.");
                 break;
             }
         };
@@ -174,22 +173,28 @@ pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
         let total_tweets_count = &result.len();
         if total_tweets_count.eq(&0) {
             is_continued = false;
-            info!("Looks nothing to delete. Exit the execution.");
+            info!("Looks nothing to unlike. Exit the execution.");
             break;
         }
 
         let mut unliked_tweets_count = 0;
-        info!("Start to delete {} tweets", total_tweets_count);
+        info!("Start to unlike {} tweets", total_tweets_count);
         for val in result {
             let deleted = tw_client.delete_liked(&val.id);
-            if deleted.is_err() {
-                return Err(anyhow::anyhow!("Unlike was failed with {:?}", &val.id));
-            }
             unliked_tweets_count += 1;
-            info!(
-                "Unliked Id: {:?}, {} / {}",
-                &val.id, unliked_tweets_count, total_tweets_count
-            );
+            if deleted.is_ok() {
+                info!(
+                    "Unliked Id: {:?}, {} / {}",
+                    &val.id, unliked_tweets_count, total_tweets_count
+                );
+            } else {
+                // 削除されたツイートに対するUnlikeができないため, ErrよりもContinueする
+                unliked_tweets_count += 1;
+                info!(
+                    "(Skipped) Id: {:?}, {} / {}",
+                    &val.id, unliked_tweets_count, total_tweets_count
+                );
+            }
             // 早く投げすぎてブロックされることを防ぐため、インターバルを挟む
             let request_interval = std::time::Duration::from_millis(500);
             sleep(request_interval);
