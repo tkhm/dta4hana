@@ -220,7 +220,7 @@ fn _collect_tweets(mut file: &File) -> Result<Vec<Tweet>> {
 /// Load user credential from the file
 /// * config_path: path of the credential stored file
 fn load_app_user_credential(config_path: &PathBuf) -> Result<TwitterAppUserCredential> {
-    let mut file = OpenOptions::new().read(true).open(&config_path)?;
+    let mut file = OpenOptions::new().read(true).open(config_path)?;
     file.seek(SeekFrom::Start(0))?; // Rewind the file before.
     let loaded_config = match serde_json::from_reader(file) {
         Ok(loaded_config) => loaded_config,
