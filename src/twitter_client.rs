@@ -54,6 +54,7 @@ pub trait TwitterClientTrait {
     fn delete_liked(&self, tweet_id_str: &str) -> Result<()>;
     fn delete_tweet(&self, tweet_id_str: &str) -> Result<()>;
     fn fetch_timeline(&self, since: Option<String>, until: Option<String>) -> Result<Vec<Tweet>>;
+    fn fetch_likes(&self) -> Result<Vec<Tweet>>;
     fn init_user_cred(self, user_cred: TwitterAppUserCredential) -> Result<TwitterClient>;
     fn login(&self) -> Result<TwitterAppUserCredential>;
 }
@@ -97,8 +98,48 @@ impl TwitterClientTrait for TwitterClient {
 
     /// Delete(unliked) your liked tweet from your liked tweets
     /// * _tweet_id_str: target tweet id
-    fn delete_liked(&self, _tweet_id_str: &str) -> Result<()> {
-        unimplemented!();
+    fn delete_liked(&self, tweet_id_str: &str) -> Result<()> {
+        let user_cred = match &self.user_cred {
+            Some(cred) => cred,
+            None => return Err(anyhow::anyhow!("Credential is not loaded.")),
+        };
+
+        let oauth_token = &user_cred.oauth_token;
+        let oauth_token_secret = &user_cred.oauth_token_secret;
+        let consumer_key = &self.app_cred.consumer_key;
+        let consumer_secret = &self.app_cred.consumer_secret;
+
+        let request_url = self.server.join("/1.1/favorites/destroy.json")?;
+        let query_params: Vec<QueryParam> = vec![QueryParam::new("id", tweet_id_str)];
+
+        // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
+        let request_method = &String::from("POST");
+
+        let oauth_signature = build_oauth_signature(
+            oauth_token,
+            oauth_token_secret,
+            consumer_key,
+            consumer_secret,
+            request_url.clone(),
+            request_method,
+            query_params.clone(),
+        );
+
+        let mut signed_unlike_tweet_request = self
+            .agent
+            .request_url(request_method.as_str(), &request_url)
+            .set("Authorization", &oauth_signature);
+
+        for each in query_params {
+            signed_unlike_tweet_request = signed_unlike_tweet_request.query(&each.key, &each.value);
+        }
+
+        let signed_unlike_tweet_response = signed_unlike_tweet_request.call();
+
+        match signed_unlike_tweet_response {
+            Ok(_) => Ok(()),
+            Err(_) => Err(anyhow::anyhow!("Failed to unlike.")),
+        }
     }
 
     /// Delete your liked tweet
@@ -230,7 +271,73 @@ impl TwitterClientTrait for TwitterClient {
             .agent
             .request_url(request_method.as_str(), &request_url)
             .set("Authorization", &oauth_signature);
-            debug!("Request query key and value:");
+        debug!("Request query key and value:");
+        for each in query_params {
+            debug!("\tkey:{}, value:{}", each.key, each.value);
+            signed_fetch_timeline_request =
+                signed_fetch_timeline_request.query(&each.key, &each.value);
+        }
+
+        let signed_fetch_timeline_response = signed_fetch_timeline_request.call();
+
+        let signed_fetch_timeline_response = match signed_fetch_timeline_response {
+            Ok(res) => res,
+            Err(e) => {
+                panic!("{}", e);
+            }
+        };
+        // load on the object for removing unnecessary prop
+        let response_object: ResponseObject<Vec<Tweet>> =
+            serde_json::from_reader(signed_fetch_timeline_response.into_reader())?;
+
+        debug!("Got: {} tweets", &response_object.data.len());
+        Ok(response_object.data)
+    }
+
+    /// Retrieve the liked tweets
+    /// It will get xxx tweets(MAX and fixed value)
+    /// * since: the first date of getting tweets e.g. 2022-01-01
+    ///   It will be attached time and timezone after that date like 2022-01-01T00:00:00Z
+    /// * until: the last date of getting tweets e.g. 2022-12-31
+    ///   It will be attached time and timezone after that date like 2022-12-31T00:00:00Z
+    fn fetch_likes(&self) -> Result<Vec<Tweet>> {
+        let user_cred = match &self.user_cred {
+            Some(cred) => cred,
+            None => return Err(anyhow::anyhow!("Credential is not loaded.")),
+        };
+
+        info!("Pull the target tweets");
+
+        let oauth_token = &user_cred.oauth_token;
+        let oauth_token_secret = &user_cred.oauth_token_secret;
+        let consumer_key = &self.app_cred.consumer_key;
+        let consumer_secret = &self.app_cred.consumer_secret;
+
+        let request_url = self
+            .server
+            .join(&format!("2/users/{}/liked_tweets", &user_cred.id))?;
+        let query_params: Vec<QueryParam> = vec![
+            QueryParam::new("max_results", "100"),
+            QueryParam::new("tweet.fields", "created_at,public_metrics,attachments"),
+        ];
+
+        let request_method = &String::from("GET");
+
+        let oauth_signature = build_oauth_signature(
+            oauth_token,
+            oauth_token_secret,
+            consumer_key,
+            consumer_secret,
+            request_url.clone(),
+            request_method,
+            query_params.clone(),
+        );
+
+        let mut signed_fetch_timeline_request = self
+            .agent
+            .request_url(request_method.as_str(), &request_url)
+            .set("Authorization", &oauth_signature);
+        debug!("Request query key and value:");
         for each in query_params {
             debug!("\tkey:{}, value:{}", each.key, each.value);
             signed_fetch_timeline_request =

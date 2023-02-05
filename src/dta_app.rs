@@ -18,7 +18,7 @@ use crate::twitter_object::Tweet;
 
 /// Delete the tweets
 ///
-/// It can delete tweets only one by one, but accepts to receive desired target periods and try to repear the deletion
+/// It can delete tweets only one by one, but accepts to receive desired target periods and try to repeat the deletion
 /// In here, get target 100 tweets, delete it and repeat until the end(or API limits)
 /// * tw_client: Twitter Client with valid credentials are required
 /// * since: the first date of getting tweets e.g. 2022-01-01
@@ -154,28 +154,58 @@ pub fn login(tw_client: &impl TwitterClientTrait, config_path: &PathBuf) -> Resu
 
 /// Unlike your liked tweets
 ///
-/// It is not implemented yet, but it must be the similar implementation with [`delete_tweets()`]
+/// It can unlike tweets only one by one, but try to repeat the unlike.
+/// In here, get target 100 tweets, unlike it and repeat until the end(or API limits)
 pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
-    // TODO: Replace work_path
-    let mut work_path = env::temp_dir();
-    work_path.push("dta4hana.work.json");
-    let file: File = OpenOptions::new().read(true).open(&work_path)?;
+    info!("We can't unlike tweets all at once due to API limitation and current implementations. It will repeat your unlike until it becomes 0. (or API call limits)");
 
-    // Unlike対象IDを確保する
-    let result: Vec<Tweet> = collect_tweets(&file)?;
-    for val in result.iter() {
-        let deleted = tw_client.delete_liked(&val.id);
-        debug!("Id: {:?}", &val.id);
-        if deleted.is_err() {
-            return Err(anyhow::anyhow!("Unlike was failed with {:?}", &val.id));
+    let mut is_continued = true;
+    while is_continued {
+        let result = match tw_client.fetch_likes() {
+            Ok(result) => result,
+            Err(_) => {
+                is_continued = false;
+                info!("Looks nothing to unlike. Exit the execution.");
+                break;
+            }
+        };
+
+        let total_tweets_count = &result.len();
+        if total_tweets_count.eq(&0) {
+            is_continued = false;
+            info!("Looks nothing to unlike. Exit the execution.");
+            break;
         }
+
+        let mut unliked_tweets_count = 0;
+        info!("Start to unlike {} tweets", total_tweets_count);
+        for val in result {
+            let deleted = tw_client.delete_liked(&val.id);
+            unliked_tweets_count += 1;
+            if deleted.is_ok() {
+                info!(
+                    "Unliked Id: {:?}, {} / {}",
+                    &val.id, unliked_tweets_count, total_tweets_count
+                );
+            } else {
+                // 削除されたツイートに対するUnlikeができないため, ErrよりもContinueする
+                info!(
+                    "(Skipped) Id: {:?}, {} / {}",
+                    &val.id, unliked_tweets_count, total_tweets_count
+                );
+            }
+            // 早く投げすぎてブロックされることを防ぐため、インターバルを挟む
+            let request_interval = std::time::Duration::from_millis(500);
+            sleep(request_interval);
+        }
+        info!("Finished the round of unlike! (will continue to unlike in the next round if necessary)")
     }
     Ok(())
 }
 
 /// Load your tweets from the file
 /// It is for the test/verification purpose
-fn collect_tweets(mut file: &File) -> Result<Vec<Tweet>> {
+fn _collect_tweets(mut file: &File) -> Result<Vec<Tweet>> {
     file.seek(SeekFrom::Start(0))?; // Rewind the file before.
     let tweets = match serde_json::from_reader(file) {
         Ok(tweets) => tweets,
@@ -189,7 +219,7 @@ fn collect_tweets(mut file: &File) -> Result<Vec<Tweet>> {
 /// Load user credential from the file
 /// * config_path: path of the credential stored file
 fn load_app_user_credential(config_path: &PathBuf) -> Result<TwitterAppUserCredential> {
-    let mut file = OpenOptions::new().read(true).open(&config_path)?;
+    let mut file = OpenOptions::new().read(true).open(config_path)?;
     file.seek(SeekFrom::Start(0))?; // Rewind the file before.
     let loaded_config = match serde_json::from_reader(file) {
         Ok(loaded_config) => loaded_config,
@@ -238,6 +268,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn delete_tweets_in_the_period() {
         // TODO: setup required
         let mut tw_client = MockTwitterClientTrait::default();
@@ -264,24 +295,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn unlike_likes_all() {
         // TODO: setup required
         let mut tw_client = MockTwitterClientTrait::default();
-        // TODO: modify here after implementation
-        tw_client
-            .expect_delete_liked()
-            .returning(|_| unimplemented!());
-        let result = unlike_likes(&tw_client);
-        assert_eq!(result.is_ok(), true);
-    }
-
-    #[test]
-    #[ignore]
-    fn unlike_likes_in_the_period() {
-        // TODO: setup required
-        let mut tw_client = MockTwitterClientTrait::default();
-        // TODO: setup period config required
         // TODO: modify here after implementation
         tw_client
             .expect_delete_liked()
