@@ -155,19 +155,14 @@ pub fn login(tw_client: &impl TwitterClientTrait, config_path: &PathBuf) -> Resu
 /// Unlike your liked tweets
 ///
 /// It is not implemented yet, but it must be the similar implementation with [`delete_tweets()`]
-pub fn unlike_likes(
-    tw_client: &impl TwitterClientTrait,
-    since: Option<String>,
-    until: Option<String>,
-) -> Result<()> {
-    debug!("args: since={:?}, until={:?}", &since, &until);
-
+/// since and until is not supported by API
+/// If we need to implement it, we need to handle it locally
+pub fn unlike_likes(tw_client: &impl TwitterClientTrait) -> Result<()> {
     info!("We can't unlike tweets all at once due to API limitation and current implementations. It will repeat your unlike until it becomes 0. (or API call limits)");
 
     let mut is_continued = true;
     while is_continued {
-        // TODO: fetch_likes
-        let result = match tw_client.fetch_timeline(since.clone(), until.clone()) {
+        let result = match tw_client.fetch_likes() {
             Ok(result) => result,
             Err(_) => {
                 is_continued = false;
@@ -303,21 +298,7 @@ mod tests {
         tw_client
             .expect_delete_liked()
             .returning(|_| unimplemented!());
-        let result = unlike_likes(&tw_client, None, None);
-        assert_eq!(result.is_ok(), true);
-    }
-
-    #[test]
-    #[ignore]
-    fn unlike_likes_in_the_period() {
-        // TODO: setup required
-        let mut tw_client = MockTwitterClientTrait::default();
-        // TODO: setup period config required
-        // TODO: modify here after implementation
-        tw_client
-            .expect_delete_liked()
-            .returning(|_| unimplemented!());
-        let result = unlike_likes(&tw_client, None, None);
+        let result = unlike_likes(&tw_client);
         assert_eq!(result.is_ok(), true);
     }
 }
