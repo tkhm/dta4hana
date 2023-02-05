@@ -98,8 +98,48 @@ impl TwitterClientTrait for TwitterClient {
 
     /// Delete(unliked) your liked tweet from your liked tweets
     /// * _tweet_id_str: target tweet id
-    fn delete_liked(&self, _tweet_id_str: &str) -> Result<()> {
-        unimplemented!();
+    fn delete_liked(&self, tweet_id_str: &str) -> Result<()> {
+        let user_cred = match &self.user_cred {
+            Some(cred) => cred,
+            None => return Err(anyhow::anyhow!("Credential is not loaded.")),
+        };
+
+        let oauth_token = &user_cred.oauth_token;
+        let oauth_token_secret = &user_cred.oauth_token_secret;
+        let consumer_key = &self.app_cred.consumer_key;
+        let consumer_secret = &self.app_cred.consumer_secret;
+
+        let request_url = self.server.join("/1.1/favorites/destroy.json")?;
+        let query_params: Vec<QueryParam> = vec![QueryParam::new("id", tweet_id_str)];
+
+        // https://rust-lang-nursery.github.io/rust-cookbook/encoding/strings.html#percent-encode-a-string
+        let request_method = &String::from("POST");
+
+        let oauth_signature = build_oauth_signature(
+            oauth_token,
+            oauth_token_secret,
+            consumer_key,
+            consumer_secret,
+            request_url.clone(),
+            request_method,
+            query_params.clone(),
+        );
+
+        let mut signed_unlike_tweet_request = self
+            .agent
+            .request_url(request_method.as_str(), &request_url)
+            .set("Authorization", &oauth_signature);
+
+        for each in query_params {
+            signed_unlike_tweet_request = signed_unlike_tweet_request.query(&each.key, &each.value);
+        }
+
+        let signed_unlike_tweet_response = signed_unlike_tweet_request.call();
+
+        match signed_unlike_tweet_response {
+            Ok(_) => Ok(()),
+            Err(_) => Err(anyhow::anyhow!("Failed to unlike.")),
+        }
     }
 
     /// Delete your liked tweet
